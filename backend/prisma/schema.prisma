@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  OPERATOR
+}
+
+enum Priority {
+  HIGH
+  NORMAL
+}
+
+enum BookingStatus {
+  PENDING
+  MONITORING
+  SLOT_FOUND
+  BOOKING
+  BOOKED
+  FAILED
+  CANCELLED
+}
+
+enum NotificationType {
+  TELEGRAM
+  EMAIL
+  DESKTOP
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  role         UserRole @default(OPERATOR)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  profiles          ApplicantProfile[]
+  bookingTasks      BookingTask[]
+  notificationPrefs NotificationPreference[]
+
+  @@map("users")
+}
+
+model ApplicantProfile {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  fullName       String   @map("full_name")
+  passportNumber String   @map("passport_number") // encrypted
+  dateOfBirth    DateTime @map("date_of_birth")
+  passportExpiry DateTime @map("passport_expiry")
+  nationality    String   @default("Angolan")
+  email          String
+  phone          String
+  priority       Priority @default(NORMAL)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookingTasks BookingTask[]
+
+  @@map("applicant_profiles")
+}
+
+model BookingTask {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  profileId       String        @map("profile_id")
+  originCountry   String        @default("Angola") @map("origin_country")
+  destCountry     String        @map("dest_country") // "Brazil" or "Portugal"
+  visaCategory    String        @map("visa_category")
+  status          BookingStatus @default(PENDING)
+  mode            String        @default("auto") // "auto" or "manual"
+  refreshInterval Int           @default(10) @map("refresh_interval") // seconds
+  preferredDateFrom DateTime?   @map("preferred_date_from")
+  preferredDateTo   DateTime?   @map("preferred_date_to")
+  slotFoundAt     DateTime?     @map("slot_found_at")
+  bookedAt        DateTime?     @map("booked_at")
+  errorMessage    String?       @map("error_message")
+  retryCount      Int           @default(0) @map("retry_count")
+  maxRetries      Int           @default(5) @map("max_retries")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile ApplicantProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  logs    TaskLog[]
+
+  @@map("booking_tasks")
+}
+
+model TaskLog {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  level     String   // "info", "warn", "error"
+  message   String
+  details   String?  // JSON string for extra data
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task BookingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@map("task_logs")
+}
+
+model NotificationPreference {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  enabled   Boolean          @default(true)
+  config    String?          // JSON string for type-specific config (chat_id, email, etc.)
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+  @@map("notification_preferences")
+}
+
+model ProxyConfig {
+  id        String   @id @default(uuid())
+  url       String
+  username  String?
+  password  String?  // encrypted
+  country   String?
+  isActive  Boolean  @default(true) @map("is_active")
+  lastUsed  DateTime? @map("last_used")
+  failCount Int      @default(0) @map("fail_count")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("proxy_configs")
+}
+
+model SystemSetting {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String
+
+  @@map("system_settings")
+}

@@ -1,0 +1,27 @@
+{
+  "name": "vfs-appointment-automation",
+  "version": "1.0.0",
+  "description": "Automated VFS Global visa appointment monitoring and booking system",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend",
+    "automation"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:automation": "npm run dev --workspace=automation",
+    "build": "npm run build --workspace=frontend",
+    "start": "npm run start --workspace=backend",
+    "db:migrate": "npm run db:migrate --workspace=backend",
+    "db:seed": "npm run db:seed --workspace=backend",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  }
+}
