@@ -48,6 +48,10 @@ export default function AppointmentsPage() {
     profileId: '',
     destCountry: 'Brazil' as 'Brazil' | 'Portugal',
     visaCategory: '',
+    visaSubCategory: '',
+    visaCenter: 'Luanda',
+    vfsEmail: '',
+    vfsPassword: '',
     mode: 'auto',
     refreshInterval: 10,
     preferredDateFrom: '',
@@ -80,7 +84,7 @@ export default function AppointmentsPage() {
       await bookingApi.create(form);
       toast.success('Booking task created');
       setShowForm(false);
-      setForm({ profileId: '', destCountry: 'Brazil', visaCategory: '', mode: 'auto', refreshInterval: 10, preferredDateFrom: '', preferredDateTo: '', maxRetries: 5 });
+      setForm({ profileId: '', destCountry: 'Brazil', visaCategory: '', visaSubCategory: '', visaCenter: 'Luanda', vfsEmail: '', vfsPassword: '', mode: 'auto', refreshInterval: 10, preferredDateFrom: '', preferredDateTo: '', maxRetries: 5 });
       loadData();
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to create task');
@@ -187,6 +191,55 @@ export default function AppointmentsPage() {
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Visa Sub-Category (optional)</label>
+              <input
+                className="input-field"
+                value={form.visaSubCategory}
+                onChange={(e) => setForm({ ...form, visaSubCategory: e.target.value })}
+                placeholder="e.g. Short Stay"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Visa Center</label>
+              <input
+                className="input-field"
+                value={form.visaCenter}
+                onChange={(e) => setForm({ ...form, visaCenter: e.target.value })}
+                placeholder="e.g. Luanda"
+              />
+            </div>
+
+            <div className="md:col-span-2 mt-2 p-4 bg-blue-50 rounded-lg">
+              <h3 className="text-sm font-semibold text-blue-800 mb-3">VFS Global Login Credentials</h3>
+              <p className="text-xs text-blue-600 mb-3">Required to log into visa.vfsglobal.com and monitor appointments. Stored encrypted.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">VFS Email</label>
+                  <input
+                    type="email"
+                    className="input-field"
+                    value={form.vfsEmail}
+                    onChange={(e) => setForm({ ...form, vfsEmail: e.target.value })}
+                    required
+                    placeholder="your-vfs-account@email.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">VFS Password</label>
+                  <input
+                    type="password"
+                    className="input-field"
+                    value={form.vfsPassword}
+                    onChange={(e) => setForm({ ...form, vfsPassword: e.target.value })}
+                    required
+                    placeholder="Your VFS account password"
+                  />
+                </div>
+              </div>
             </div>
 
             <div>

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../db/client';
 import { authenticate } from '../middleware/auth';
 import { AutomationManager } from '../services/automationManager';
+import { encrypt } from '../services/encryption';
 
 export const bookingRouter = Router();
 bookingRouter.use(authenticate);
@@ -11,6 +12,10 @@ const createBookingSchema = z.object({
   profileId: z.string().uuid(),
   destCountry: z.enum(['Brazil', 'Portugal']),
   visaCategory: z.string().min(1),
+  visaSubCategory: z.string().optional(),
+  visaCenter: z.string().optional(),
+  vfsEmail: z.string().email(),
+  vfsPassword: z.string().min(1),
   mode: z.enum(['auto', 'manual']).default('auto'),
   refreshInterval: z.number().min(5).max(60).default(10),
   preferredDateFrom: z.string().optional().transform((s) => (s ? new Date(s) : undefined)),
@@ -68,6 +73,10 @@ bookingRouter.post('/', async (req: Request, res: Response) => {
         profileId: data.profileId,
         destCountry: data.destCountry,
         visaCategory: data.visaCategory,
+        visaSubCategory: data.visaSubCategory,
+        visaCenter: data.visaCenter,
+        vfsEmail: encrypt(data.vfsEmail),
+        vfsPassword: encrypt(data.vfsPassword),
         mode: data.mode,
         refreshInterval: data.refreshInterval,
         preferredDateFrom: data.preferredDateFrom,
@@ -124,7 +133,7 @@ bookingRouter.post('/:id/stop', async (req: Request, res: Response) => {
       return;
     }
 
-    AutomationManager.getInstance().stopTask(task.id);
+    await AutomationManager.getInstance().stopTask(task.id);
 
     await prisma.bookingTask.update({
       where: { id: task.id },
@@ -147,7 +156,7 @@ bookingRouter.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    AutomationManager.getInstance().stopTask(task.id);
+    await AutomationManager.getInstance().stopTask(task.id);
     await prisma.bookingTask.delete({ where: { id: task.id } });
     res.json({ success: true });
   } catch {

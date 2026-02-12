@@ -76,6 +76,10 @@ model BookingTask {
   originCountry   String        @default("Angola") @map("origin_country")
   destCountry     String        @map("dest_country") // "Brazil" or "Portugal"
   visaCategory    String        @map("visa_category")
+  visaSubCategory String?       @map("visa_sub_category")
+  visaCenter      String?       @map("visa_center")
+  vfsEmail        String?       @map("vfs_email")        // encrypted
+  vfsPassword     String?       @map("vfs_password")     // encrypted
   status          BookingStatus @default(PENDING)
   mode            String        @default("auto") // "auto" or "manual"
   refreshInterval Int           @default(10) @map("refresh_interval") // seconds
