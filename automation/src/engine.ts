@@ -41,10 +41,13 @@ export interface EngineCallbacks {
 const VFS_BASE_URL = 'https://visa.vfsglobal.com';
 
 // VFS URL patterns for Angola
-const VFS_URLS = {
+const VFS_URLS: Record<string, string> = {
   Brazil: `${VFS_BASE_URL}/ago/pt/bra/attend-appointment`,
   Portugal: `${VFS_BASE_URL}/ago/pt/prt/attend-appointment`,
 };
+
+const MIN_ERROR_BACKOFF_MS = 5000;
+const MAX_ERROR_BACKOFF_MS = 60000;
 
 export class VFSAutomationEngine {
   private browserManager: BrowserManager;
@@ -53,6 +56,7 @@ export class VFSAutomationEngine {
   private page: Page | null = null;
   private isRunning: boolean = false;
   private callbacks: EngineCallbacks;
+  private consecutiveErrors: number = 0;
 
   constructor(
     captchaConfig: CaptchaConfig,
@@ -66,8 +70,22 @@ export class VFSAutomationEngine {
     this.callbacks = callbacks;
   }
 
+  private getPage(): Page {
+    if (!this.page) throw new Error('Page not initialized');
+    return this.page;
+  }
+
+  private getErrorBackoffMs(): number {
+    const backoff = Math.min(
+      MIN_ERROR_BACKOFF_MS * Math.pow(2, this.consecutiveErrors),
+      MAX_ERROR_BACKOFF_MS
+    );
+    return backoff;
+  }
+
   async start(config: BookingConfig, applicant: ApplicantData): Promise<void> {
     this.isRunning = true;
+    this.consecutiveErrors = 0;
     const proxyConfig = this.proxyManager.getProxyConfig();
 
     try {
@@ -81,7 +99,7 @@ export class VFSAutomationEngine {
 
       await this.callbacks.onLog('info', `Navigating to VFS Global for ${config.destCountry}...`);
 
-      const url = VFS_URLS[config.destCountry as keyof typeof VFS_URLS];
+      const url = VFS_URLS[config.destCountry];
       if (!url) {
         throw new Error(`Unsupported destination country: ${config.destCountry}`);
       }
@@ -104,27 +122,40 @@ export class VFSAutomationEngine {
               if (config.mode === 'auto') {
                 await this.bookAppointment(bestSlot, applicant);
               } else {
-                await this.callbacks.onLog('info', 'Manual mode: waiting for user confirmation...');
-                // In manual mode, wait for external trigger
-                break;
+                // Manual mode: notify and keep monitoring
+                await this.callbacks.onLog('info', 'Manual mode: slot reported, awaiting user action. Continuing to monitor...');
               }
             }
           } else {
             await this.callbacks.onLog('info', 'No slots available. Waiting for next check...');
           }
 
+          // Reset error counter on success
+          this.consecutiveErrors = 0;
+
           // Wait before next check
           await new Promise((resolve) => setTimeout(resolve, config.refreshInterval * 1000));
 
-          // Refresh the page for next check
-          await this.page!.reload({ waitUntil: 'networkidle' });
+          // Refresh the page for next check; recover if page crashed
+          try {
+            await this.getPage().reload({ waitUntil: 'networkidle' });
+          } catch {
+            await this.callbacks.onLog('warn', 'Page reload failed, re-launching browser...');
+            await this.recoverBrowser(url, proxyConfig);
+          }
         } catch (err) {
+          this.consecutiveErrors++;
           const message = err instanceof Error ? err.message : 'Unknown error';
           await this.callbacks.onLog('error', `Check cycle error: ${message}`);
 
           // Handle blocks by rotating proxy
           if (message.includes('403') || message.includes('blocked') || message.includes('rate limit')) {
             await this.handleBlock(url);
+          } else {
+            // Exponential backoff on consecutive errors
+            const backoff = this.getErrorBackoffMs();
+            await this.callbacks.onLog('info', `Backing off for ${Math.round(backoff / 1000)}s before retry...`);
+            await new Promise((resolve) => setTimeout(resolve, backoff));
           }
         }
       }
@@ -140,19 +171,38 @@ export class VFSAutomationEngine {
   async stop(): Promise<void> {
     this.isRunning = false;
     await this.browserManager.close();
+    this.page = null;
     logger.info('Engine stopped');
   }
 
+  private async recoverBrowser(
+    url: string,
+    proxyConfig?: { server: string; username?: string; password?: string }
+  ): Promise<void> {
+    try {
+      await this.browserManager.close();
+    } catch { /* ignore close errors */ }
+
+    const context = await this.browserManager.launch({
+      headless: true,
+      proxy: proxyConfig,
+    });
+    this.page = await context.newPage();
+    await this.navigateWithRetry(url);
+    await this.callbacks.onLog('info', 'Browser recovered successfully');
+  }
+
   private async navigateWithRetry(url: string, maxRetries: number = 3): Promise<void> {
+    const page = this.getPage();
     for (let i = 0; i < maxRetries; i++) {
       try {
-        await this.page!.goto(url, {
+        await page.goto(url, {
           waitUntil: 'networkidle',
           timeout: 30000,
         });
 
         // Check for captcha after navigation
-        const captchaType = await this.captchaHandler.detectCaptcha(this.page!);
+        const captchaType = await this.captchaHandler.detectCaptcha(page);
         if (captchaType) {
           await this.handleCaptcha(captchaType);
         }
@@ -170,13 +220,12 @@ export class VFSAutomationEngine {
   }
 
   private async checkAvailability(config: BookingConfig): Promise<SlotInfo[]> {
-    if (!this.page) throw new Error('Page not initialized');
-
+    const page = this.getPage();
     const slots: SlotInfo[] = [];
 
     try {
       // Select visa category if dropdown exists
-      const categorySelect = await this.page.$('select[id*="category"], select[name*="category"]');
+      const categorySelect = await page.$('select[id*="category"], select[name*="category"]');
       if (categorySelect) {
         await this.browserManager.addRandomDelay(300, 800);
         await categorySelect.selectOption({ label: config.visaCategory });
@@ -184,13 +233,13 @@ export class VFSAutomationEngine {
       }
 
       // Wait for calendar or slot elements to load
-      await this.page.waitForSelector(
+      await page.waitForSelector(
         '.appointment-table, .calendar-container, [class*="slot"], [class*="date-picker"], [class*="available"]',
         { timeout: 10000 }
       ).catch(() => null);
 
       // Try multiple selectors for available dates
-      const availableDateElements = await this.page.$$(
+      const availableDateElements = await page.$$(
         '.available-date, .date-available, td.active:not(.disabled), .appointment-date:not(.unavailable), [class*="available"]:not([class*="unavailable"])'
       );
 
@@ -208,8 +257,7 @@ export class VFSAutomationEngine {
       }
 
       // Alternative: check API responses intercepted during page load
-      // Some VFS implementations use AJAX to fetch availability
-      const apiSlots = await this.page.evaluate(() => {
+      const apiSlots = await page.evaluate(() => {
         const data = (window as any).__VFS_SLOTS__;
         if (Array.isArray(data)) {
           return data.filter((s: any) => s.available).map((s: any) => ({
@@ -249,18 +297,21 @@ export class VFSAutomationEngine {
   }
 
   private async bookAppointment(slot: SlotInfo, applicant: ApplicantData): Promise<void> {
-    if (!this.page) throw new Error('Page not initialized');
+    const page = this.getPage();
 
     await this.callbacks.onLog('info', `Attempting to book slot: ${slot.date} at ${slot.time}`);
 
     try {
       // Click on the available slot
       const slotSelector = `[data-date="${slot.date}"], .available-date:has-text("${slot.date}")`;
-      await this.browserManager.humanClick(this.page, slotSelector);
+      await this.browserManager.humanClick(page, slotSelector);
       await this.browserManager.addRandomDelay(500, 1500);
 
+      // Wait for page to settle after click
+      await page.waitForLoadState('networkidle').catch(() => null);
+
       // Select time if needed
-      const timeSelect = await this.page.$('select[id*="time"], select[name*="time"]');
+      const timeSelect = await page.$('select[id*="time"], select[name*="time"]');
       if (timeSelect) {
         await timeSelect.selectOption({ label: slot.time });
         await this.browserManager.addRandomDelay(300, 800);
@@ -270,14 +321,14 @@ export class VFSAutomationEngine {
       await this.fillApplicantForm(applicant);
 
       // Check for captcha before submission
-      const captchaType = await this.captchaHandler.detectCaptcha(this.page);
+      const captchaType = await this.captchaHandler.detectCaptcha(page);
       if (captchaType) {
         await this.handleCaptcha(captchaType);
       }
 
       // Submit the form
       await this.callbacks.onLog('info', 'Submitting booking form...');
-      const submitButton = await this.page.$(
+      const submitButton = await page.$(
         'button[type="submit"], input[type="submit"], .submit-btn, .book-appointment-btn, [class*="submit"]'
       );
 
@@ -286,13 +337,14 @@ export class VFSAutomationEngine {
         await submitButton.click();
 
         // Wait for confirmation
-        await this.page.waitForSelector(
+        await page.waitForSelector(
           '.confirmation, .success, .booking-confirmed, [class*="success"], [class*="confirm"]',
           { timeout: 15000 }
         );
 
         await this.callbacks.onLog('info', 'Booking confirmed!');
         await this.callbacks.onBookingSuccess();
+        this.isRunning = false; // Stop monitoring after successful booking
       } else {
         throw new Error('Submit button not found');
       }
@@ -304,7 +356,7 @@ export class VFSAutomationEngine {
   }
 
   private async fillApplicantForm(applicant: ApplicantData): Promise<void> {
-    if (!this.page) return;
+    const page = this.getPage();
 
     await this.callbacks.onLog('info', 'Filling applicant form...');
 
@@ -321,14 +373,14 @@ export class VFSAutomationEngine {
     for (const field of fieldMappings) {
       for (const selector of field.selectors) {
         try {
-          const element = await this.page.$(selector);
+          const element = await page.$(selector);
           if (element) {
             const tagName = await element.evaluate((el) => el.tagName.toLowerCase());
             if (tagName === 'select') {
               await element.selectOption({ label: field.value });
             } else {
               await element.fill('');
-              await this.browserManager.humanType(this.page, selector, field.value);
+              await this.browserManager.humanType(page, selector, field.value);
             }
             await this.browserManager.addRandomDelay(200, 600);
             break;
@@ -341,9 +393,10 @@ export class VFSAutomationEngine {
   }
 
   private async handleCaptcha(type: 'recaptcha' | 'image'): Promise<void> {
+    const page = this.getPage();
     await this.callbacks.onLog('info', `Captcha detected (${type}). Attempting to solve...`);
 
-    let solution = await this.captchaHandler.solveCaptcha(this.page!, type);
+    let solution = await this.captchaHandler.solveCaptcha(page, type);
 
     if (!solution) {
       // Try manual callback
@@ -351,7 +404,7 @@ export class VFSAutomationEngine {
     }
 
     if (solution) {
-      await this.captchaHandler.applyCaptchaSolution(this.page!, solution);
+      await this.captchaHandler.applyCaptchaSolution(page, solution);
       await this.callbacks.onLog('info', 'Captcha solved successfully');
     } else {
       await this.callbacks.onLog('warn', 'Captcha could not be solved');
@@ -371,8 +424,9 @@ export class VFSAutomationEngine {
       this.page = await this.browserManager.newPage();
       await this.navigateWithRetry(url);
     } else {
-      await this.callbacks.onLog('error', 'No more proxies available');
-      this.isRunning = false;
+      await this.callbacks.onLog('error', 'No more proxies available. Waiting before direct retry...');
+      const backoff = this.getErrorBackoffMs();
+      await new Promise((resolve) => setTimeout(resolve, backoff));
     }
   }
 }

@@ -1,5 +1,27 @@
 import 'dotenv/config';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Validate critical secrets in production
+if (isProduction) {
+  const required = ['JWT_SECRET', 'ENCRYPTION_KEY', 'DATABASE_URL'];
+  const missing = required.filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
+if (isProduction && process.env.JWT_SECRET === 'dev-secret-change-in-production') {
+  throw new Error('JWT_SECRET must be changed from default in production');
+}
+
+if (
+  isProduction &&
+  process.env.ENCRYPTION_KEY === '0000000000000000000000000000000000000000000000000000000000000000'
+) {
+  throw new Error('ENCRYPTION_KEY must be changed from default in production');
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',

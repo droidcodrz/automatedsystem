@@ -66,7 +66,17 @@ notificationRouter.post('/test', async (req: Request, res: Response) => {
         res.status(400).json({ error: 'Telegram not configured' });
         return;
       }
-      const chatId = JSON.parse(pref.config).chatId;
+      let chatId: string;
+      try {
+        chatId = JSON.parse(pref.config).chatId;
+      } catch {
+        res.status(400).json({ error: 'Invalid Telegram configuration' });
+        return;
+      }
+      if (!chatId) {
+        res.status(400).json({ error: 'Telegram Chat ID not set' });
+        return;
+      }
       const sent = await sendTelegramNotification(chatId, payload);
       res.json({ success: sent });
     } else if (type === 'EMAIL') {

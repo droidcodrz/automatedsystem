@@ -8,8 +8,8 @@ logRouter.use(authenticate);
 logRouter.get('/', async (req: Request, res: Response) => {
   try {
     const { taskId, level, from, to, page = '1', limit = '50' } = req.query;
-    const pageNum = parseInt(page as string, 10);
-    const limitNum = Math.min(parseInt(limit as string, 10), 200);
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const limitNum = Math.max(1, Math.min(parseInt(limit as string, 10) || 50, 200));
 
     const where: Record<string, unknown> = {};
 

@@ -45,16 +45,24 @@ export class ProxyManager {
   }
 
   markFailed(proxyId: string): void {
-    const proxy = this.proxies.find((p) => p.id === proxyId);
-    if (proxy) {
-      proxy.failCount++;
-      logger.warn(`Proxy ${proxy.url} fail count: ${proxy.failCount}`);
-      if (proxy.failCount >= this.maxFailCount) {
-        this.proxies = this.proxies.filter((p) => p.id !== proxyId);
-        logger.warn(`Proxy ${proxy.url} removed due to too many failures`);
-        if (this.currentIndex >= this.proxies.length) {
-          this.currentIndex = 0;
-        }
+    const proxyIndex = this.proxies.findIndex((p) => p.id === proxyId);
+    if (proxyIndex === -1) return;
+
+    const proxy = this.proxies[proxyIndex];
+    proxy.failCount++;
+    logger.warn(`Proxy ${proxy.url} fail count: ${proxy.failCount}`);
+
+    if (proxy.failCount >= this.maxFailCount) {
+      this.proxies.splice(proxyIndex, 1);
+      logger.warn(`Proxy ${proxy.url} removed due to too many failures`);
+
+      if (this.proxies.length === 0) {
+        this.currentIndex = 0;
+      } else if (this.currentIndex >= this.proxies.length) {
+        this.currentIndex = 0;
+      } else if (proxyIndex < this.currentIndex) {
+        // Adjust index when a proxy before current was removed
+        this.currentIndex--;
       }
     }
   }

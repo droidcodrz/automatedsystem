@@ -5,9 +5,19 @@ import * as XLSX from 'xlsx';
 import { prisma } from '../db/client';
 import { authenticate } from '../middleware/auth';
 import { encrypt, decrypt } from '../services/encryption';
+import { logger } from '../services/logger';
 
 export const profileRouter = Router();
 profileRouter.use(authenticate);
+
+function safeDecrypt(value: string): string {
+  try {
+    return decrypt(value);
+  } catch {
+    logger.error('Failed to decrypt value');
+    return '***decryption-error***';
+  }
+}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -31,7 +41,7 @@ profileRouter.get('/', async (req: Request, res: Response) => {
 
     const decrypted = profiles.map((p) => ({
       ...p,
-      passportNumber: decrypt(p.passportNumber),
+      passportNumber: safeDecrypt(p.passportNumber),
     }));
 
     res.json({ profiles: decrypted });
@@ -49,7 +59,7 @@ profileRouter.get('/:id', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Profile not found' });
       return;
     }
-    res.json({ profile: { ...profile, passportNumber: decrypt(profile.passportNumber) } });
+    res.json({ profile: { ...profile, passportNumber: safeDecrypt(profile.passportNumber) } });
   } catch {
     res.status(500).json({ error: 'Failed to fetch profile' });
   }
@@ -95,7 +105,7 @@ profileRouter.put('/:id', async (req: Request, res: Response) => {
       where: { id: req.params.id },
       data: updateData,
     });
-    res.json({ profile: { ...profile, passportNumber: decrypt(profile.passportNumber) } });
+    res.json({ profile: { ...profile, passportNumber: safeDecrypt(profile.passportNumber) } });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: 'Validation error', details: err.errors });

@@ -183,17 +183,20 @@ export default function NotificationsPage() {
                 type="checkbox"
                 className="sr-only peer"
                 checked={isEnabled('DESKTOP')}
-                onChange={(e) => {
-                  if (e.target.checked && 'Notification' in window) {
-                    Notification.requestPermission().then((perm) => {
-                      if (perm === 'granted') {
-                        toggleChannel('DESKTOP', true);
-                      } else {
-                        toast.error('Notification permission denied');
-                      }
-                    });
+                onChange={async (e) => {
+                  if (e.target.checked) {
+                    if (!('Notification' in window)) {
+                      toast.error('Desktop notifications not supported in this browser');
+                      return;
+                    }
+                    const perm = await Notification.requestPermission();
+                    if (perm === 'granted') {
+                      await toggleChannel('DESKTOP', true);
+                    } else {
+                      toast.error('Notification permission denied by browser');
+                    }
                   } else {
-                    toggleChannel('DESKTOP', false);
+                    await toggleChannel('DESKTOP', false);
                   }
                 }}
               />

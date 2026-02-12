@@ -70,8 +70,8 @@ export default function ProfilesPage() {
     setForm({
       fullName: profile.fullName,
       passportNumber: profile.passportNumber,
-      dateOfBirth: profile.dateOfBirth.split('T')[0],
-      passportExpiry: profile.passportExpiry.split('T')[0],
+      dateOfBirth: new Date(profile.dateOfBirth).toISOString().split('T')[0],
+      passportExpiry: new Date(profile.passportExpiry).toISOString().split('T')[0],
       nationality: profile.nationality,
       email: profile.email,
       phone: profile.phone,
